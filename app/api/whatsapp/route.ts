@@ -15,12 +15,13 @@
 import crypto from "crypto";
 import { waitUntil } from "@vercel/functions";
 import { sendText, markAsRead } from "@/lib/whatsapp";
-import { generateReply } from "@/lib/llm";
+import { generateReply, extractLead } from "@/lib/llm";
 import {
   recordInbound,
   recordOutbound,
   loadHistory,
 } from "@/lib/conversation";
+import { upsertLead } from "@/lib/leads";
 
 // ---------------------------------------------------------------
 // Signature check — confirms the request really came from Meta
@@ -172,6 +173,23 @@ async function handleWebhook(body: WebhookBody) {
 
     await sendText(from, reply);
     await recordOutbound(businessPhoneId, from, reply);
+
+    // The customer has their answer by now, so this costs them nothing.
+    // Its own try/catch: a failed extraction loses one lead, and must not
+    // take the rest of the handler down with it.
+    try {
+      const draft = await extractLead([
+        ...history,
+        { role: "assistant", content: reply },
+      ]);
+
+      if (draft) {
+        await upsertLead(businessPhoneId, from, draft);
+        console.log(`[${from}] lead:`, draft);
+      }
+    } catch (err) {
+      console.error("lead capture failed:", err);
+    }
   } catch (err) {
     console.error("handler error:", err);
   }
