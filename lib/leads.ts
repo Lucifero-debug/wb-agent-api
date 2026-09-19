@@ -8,6 +8,8 @@
 // of who needs calling back, not an archive. The full transcript is always
 // in `messages` if anyone needs the history.
 
+import "server-only";
+
 import { neon } from "@neondatabase/serverless";
 
 export type Intent = "booking" | "enquiry" | "complaint" | "other";
@@ -77,25 +79,78 @@ export async function upsertLead(
 }
 
 // ---------------------------------------------------------------
-// The worklist: open leads, most recently active first.
+// The worklist, newest activity first.
+//
+// Closed leads are hidden by default — the point of the list is what
+// still needs doing — but the dashboard can ask for them.
 // ---------------------------------------------------------------
-export async function listOpenLeads(
+export async function listLeads(
   businessPhoneId: string,
-  limit = 100
+  { includeClosed = false, limit = 200 } = {}
 ): Promise<Lead[]> {
   const sql = db();
 
-  const rows = await sql`
-    select id, customer_wa_id, name, service, preferred_time, intent, notes,
-           status, created_at, updated_at
-    from leads
-    where business_phone_id = ${businessPhoneId}
-      and status <> 'closed'
-    order by updated_at desc
-    limit ${limit}
-  `;
+  const rows = includeClosed
+    ? await sql`
+        select id, customer_wa_id, name, service, preferred_time, intent,
+               notes, status, created_at, updated_at
+        from leads
+        where business_phone_id = ${businessPhoneId}
+        order by updated_at desc
+        limit ${limit}
+      `
+    : await sql`
+        select id, customer_wa_id, name, service, preferred_time, intent,
+               notes, status, created_at, updated_at
+        from leads
+        where business_phone_id = ${businessPhoneId}
+          and status <> 'closed'
+        order by updated_at desc
+        limit ${limit}
+      `;
 
-  return rows.map((r) => ({
+  return rows.map((r) => toLead(r as LeadRow));
+}
+
+// ---------------------------------------------------------------
+// Move a lead along the worklist.
+//
+// Scoped by business_phone_id as well as id: the id alone comes from the
+// browser, and on its own it would let anyone with a session read or
+// change another business's lead once this is multi-tenant.
+// ---------------------------------------------------------------
+export async function setLeadStatus(
+  businessPhoneId: string,
+  leadId: string,
+  status: LeadStatus
+): Promise<void> {
+  const sql = db();
+
+  await sql`
+    update leads
+    set status = ${status}, updated_at = now()
+    where id = ${leadId}
+      and business_phone_id = ${businessPhoneId}
+  `;
+}
+
+// The shape the queries above select. Neon hands back loosely-typed rows,
+// so this is the one place the mapping is pinned down.
+type LeadRow = {
+  id: string | number;
+  customer_wa_id: string;
+  name: string | null;
+  service: string | null;
+  preferred_time: string | null;
+  intent: Intent;
+  notes: string | null;
+  status: LeadStatus;
+  created_at: string;
+  updated_at: string;
+};
+
+function toLead(r: LeadRow): Lead {
+  return {
     id: String(r.id),
     customerWaId: r.customer_wa_id,
     name: r.name,
@@ -106,5 +161,5 @@ export async function listOpenLeads(
     status: r.status,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
-  }));
+  };
 }
