@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test:replies": "tsx --env-file=.env.local scripts/test-replies.ts"
+    "test:replies": "tsx --env-file=.env.local scripts/test-replies.ts",
+    "fake": "tsx --env-file=.env.local scripts/fake-webhook.ts"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",
