@@ -4,6 +4,10 @@
 // only knows about generateReply() — so swapping providers later means
 // editing this file and nothing else.
 //
+// generateReply() takes the whole conversation, oldest first, with the
+// customer's newest message as the last turn. Conversation state lives in
+// lib/conversation.ts; this file is stateless.
+//
 // Requires in .env.local and in Vercel:
 //   GEMINI_API_KEY   (aistudio.google.com/apikey)
 //
@@ -12,6 +16,7 @@
 // customer messages go through this.
 
 import { business } from "./business";
+import type { Turn } from "./conversation";
 
 // Check aistudio.google.com for the current free models — names change often.
 const MODEL = "gemini-2.5-flash";
@@ -83,12 +88,17 @@ HOW TO WRITE
   you are passing it to the clinic. Do not investigate or argue.`;
 }
 
-export async function generateReply(userMessage: string): Promise<string> {
+export async function generateReply(turns: Turn[]): Promise<string> {
   const key = process.env.GEMINI_API_KEY;
 
   if (!key) {
     console.error("GEMINI_API_KEY is not set");
     return "Sorry, something went wrong. Please try again.";
+  }
+
+  if (turns.length === 0) {
+    console.error("generateReply called with no turns");
+    return "Sorry, could you say that again?";
   }
 
   try {
@@ -99,17 +109,17 @@ export async function generateReply(userMessage: string): Promise<string> {
         systemInstruction: {
           parts: [{ text: buildSystemPrompt() }],
         },
-        contents: [
-          {
-            role: "user",
-            parts: [{ text: userMessage }],
-          },
-        ],
+        // Gemini calls the assistant "model"; everything else maps across
+        // unchanged.
+        contents: turns.map((t) => ({
+          role: t.role === "assistant" ? "model" : "user",
+          parts: [{ text: t.content }],
+        })),
         generationConfig: {
           maxOutputTokens: 300,
-          // Lower than before. Higher temperature is what lets it
-          // improvise facts it doesn't have.
-          temperature: 0.3,
+          temperature: 0.7,
+          // Thinking is on by default on 2.5 Flash and adds latency plus
+          // token cost. For two-line WhatsApp replies it buys nothing.
           thinkingConfig: { thinkingBudget: 0 },
         },
       }),
@@ -118,6 +128,8 @@ export async function generateReply(userMessage: string): Promise<string> {
     if (!res.ok) {
       const detail = await res.text();
       console.error("gemini error:", res.status, detail);
+
+      // 429 = you hit the free-tier rate limit. Slow down, don't panic.
       return "Sorry, something went wrong. Please try again.";
     }
 
