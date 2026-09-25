@@ -15,10 +15,12 @@ export function ReplyForm({
   waId,
   paused,
   pauseHours,
+  businessName,
 }: {
   waId: string;
   paused: boolean;
   pauseHours: number;
+  businessName: string;
 }) {
   const [state, formAction, pending] = useActionState(sendStaffReply, initialState);
 
@@ -35,7 +37,7 @@ export function ReplyForm({
         name="body"
         rows={3}
         defaultValue={state.body}
-        placeholder="Reply as the clinic…"
+        placeholder={`Reply as ${businessName}…`}
         className="resize-y rounded-md border border-black/15 bg-transparent px-3 py-2 text-sm outline-none focus:border-black/40 dark:border-white/20 dark:focus:border-white/50"
       />
 
@@ -48,7 +50,7 @@ export function ReplyForm({
       <div className="flex items-center justify-between gap-3">
         <p className="text-xs text-black/50 dark:text-white/50">
           {paused
-            ? "Sent from the clinic's WhatsApp number."
+            ? `Sent from ${businessName}'s WhatsApp number.`
             : `Sending pauses the bot for this customer for ${pauseHours} hours.`}
         </p>
 

@@ -24,7 +24,7 @@ export const metadata = { title: "Conversation" };
 
 export const dynamic = "force-dynamic";
 
-// The clinic reads times in Delhi, whatever timezone the server runs in.
+// Business owners read times in IST, whatever timezone the server runs in.
 function when(iso: string | Date): string {
   return new Date(iso).toLocaleString("en-IN", {
     timeZone: "Asia/Kolkata",
@@ -83,7 +83,7 @@ export default async function ChatPage({
     lastCustomerMessageAt(biz, waId),
   ]);
 
-  // Scoped by business: a number that never wrote to this clinic shows
+  // Scoped by business: a number that never wrote to this business shows
   // nothing, rather than an empty chat staff could type into.
   if (thread.length === 0) notFound();
 
@@ -135,7 +135,12 @@ export default async function ChatPage({
       </ul>
 
       {windowOpen ? (
-        <ReplyForm waId={waId} paused={paused} pauseHours={PAUSE_HOURS} />
+        <ReplyForm
+          waId={waId}
+          paused={paused}
+          pauseHours={PAUSE_HOURS}
+          businessName={business.name}
+        />
       ) : (
         <p className="mt-4 rounded-lg border border-dashed border-black/15 p-4 text-sm text-black/60 dark:border-white/20 dark:text-white/60">
           More than 24 hours since this customer last wrote, so WhatsApp only

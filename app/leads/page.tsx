@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 
 import { isAuthenticated } from "@/lib/auth";
-import { business } from "@/lib/business";
+import { business, withArticle } from "@/lib/business";
 import { listLeads, type Lead } from "@/lib/leads";
 import { businessPhoneId } from "@/lib/tenant";
 import { logout, updateStatus } from "./actions";
@@ -112,9 +112,10 @@ function LeadCard({ lead }: { lead: Lead }) {
             )}
           </div>
 
-          {/* Replies go from the clinic's number via the chat page. A wa.me
-              link would open the chat from whoever's personal WhatsApp is
-              on this device — the customer would get a stranger's number. */}
+          {/* Replies go from the business's number via the chat page. A
+              wa.me link would open the chat from whoever's personal
+              WhatsApp is on this device — the customer would get a
+              stranger's number. */}
           <div className="mt-1 flex items-center gap-3 text-sm">
             <span className="font-mono text-black/60 dark:text-white/60">
               +{lead.customerWaId}
@@ -145,8 +146,8 @@ function LeadCard({ lead }: { lead: Lead }) {
       </div>
 
       <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-3">
-        <Field label="Service" value={lead.service} />
-        <Field label="Preferred time" value={lead.preferredTime} />
+        <Field label={business.request.whatLabel} value={lead.service} />
+        <Field label={business.request.whenLabel} value={lead.preferredTime} />
         <Field label="Notes" value={lead.notes} />
       </div>
     </li>
@@ -199,8 +200,8 @@ export default async function LeadsPage({ searchParams }: PageProps<"/leads">) {
 
       {leads.length === 0 ? (
         <p className="mt-10 rounded-lg border border-dashed border-black/15 p-8 text-center text-sm text-black/50 dark:border-white/20 dark:text-white/50">
-          No leads yet. They appear here as soon as someone asks for an
-          appointment on WhatsApp.
+          No leads yet. They appear here as soon as someone asks for{" "}
+          {withArticle(business.request.noun)} on WhatsApp.
         </p>
       ) : (
         <ul className="mt-6 flex flex-col gap-3">

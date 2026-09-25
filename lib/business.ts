@@ -1,38 +1,47 @@
 // lib/business.ts
 //
-// Everything specific to ONE client lives here. When you onboard a
-// second client, this stops being a file and becomes a database row.
+// Which business this deployment is answering for.
 //
-// IMPORTANT: the agent treats this file as the complete truth. Anything
-// not written here, it does not know. Be precise — a vague line here
-// becomes a wrong answer to a customer.
+// Today: one profile per deployment, chosen by the BUSINESS_PROFILE env
+// var — so the same code demos as a dental clinic to a dentist and as a
+// salon to a salon owner, with one setting changed and a restart.
+//
+// Later, with real clients: the profile is looked up per incoming number
+// (the business_phone_id every message already carries) from a database
+// table with the same shape as BusinessProfile. Nothing that reads
+// `business` needs to know which of the two it came from.
+//
+// To add a business type: copy a file in lib/profiles/, fill it in, and
+// register it below.
 
-export const business = {
-  name: "Sharma Dental Care",
-  type: "dental clinic",
-  location: "Lajpat Nagar, New Delhi",
-  hours: "Monday to Saturday, 10am to 7pm. Closed Sunday.",
+import type { BusinessProfile } from "./profiles/types";
+import { dental } from "./profiles/dental";
+import { salon } from "./profiles/salon";
 
-  services: [
-    "Consultation — Rs 300",
-    "Scaling and polishing — Rs 1500",
-    "Tooth filling — Rs 1200 onwards",
-    "Root canal — Rs 6000 onwards",
-    "Braces — consultation required for quote",
-  ],
+export type { BusinessProfile } from "./profiles/types";
 
-  faqs: [
-    "Patient parking is in the basement of the same building. The clinic itself is on the ground floor.",
-    "We accept cash, UPI and all major cards.",
-    "Walk-ins are accepted but appointments get priority.",
-    "First consultation includes a full oral examination.",
-  ],
-
-  // What the agent must never do.
-  offLimits: [
-    "diagnosing any dental or medical problem",
-    "suggesting medication or dosage",
-    "advising whether a symptom is serious or urgent",
-    "quoting a final price for treatment not listed above",
-  ],
+const profiles: Record<string, BusinessProfile> = {
+  dental,
+  salon,
 };
+
+function activeProfile(): BusinessProfile {
+  const key = process.env.BUSINESS_PROFILE ?? "dental";
+  const profile = profiles[key];
+
+  if (!profile) {
+    throw new Error(
+      `Unknown BUSINESS_PROFILE "${key}". Available: ${Object.keys(profiles).join(", ")}`
+    );
+  }
+
+  return profile;
+}
+
+export const business: BusinessProfile = activeProfile();
+
+// "an appointment", "a booking", "an order" — for sentences built from
+// profile nouns. Vowel-letter rule; good enough for the nouns profiles use.
+export function withArticle(noun: string): string {
+  return `${/^[aeiou]/i.test(noun) ? "an" : "a"} ${noun}`;
+}

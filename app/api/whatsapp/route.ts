@@ -11,6 +11,11 @@
 //   WHATSAPP_PHONE_NUMBER_ID  (from the app dashboard)
 //   GEMINI_API_KEY            (aistudio.google.com/apikey)
 //   DATABASE_URL              (Neon pooled connection string)
+// Optional:
+//   BUSINESS_PROFILE          which profile in lib/profiles/ to answer as
+//                             ("dental", "salon"). Defaults to dental. An
+//                             unknown name throws at startup and every
+//                             route returns 500 — check spelling in Vercel.
 
 import crypto from "crypto";
 import { waitUntil } from "@vercel/functions";

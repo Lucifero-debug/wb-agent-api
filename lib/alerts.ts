@@ -55,20 +55,20 @@ export async function sendLeadAlert(
   const link = appUrl ? `${appUrl}/leads/chat/${customerWaId}` : null;
 
   // Plain text on purpose: it reads fine on a phone lock screen, which is
-  // where a receptionist will actually see it.
+  // where whoever runs the front desk will actually see it.
   const text = [
     `${headlines[event]} on WhatsApp for ${business.name}.`,
     "",
     `Name:           ${draft.name ?? "not given yet"}`,
     `Phone:          +${customerWaId}`,
-    `Wants:          ${draft.service ?? "not said yet"}`,
-    `Preferred time: ${draft.preferredTime ?? "not said yet"}`,
+    `${business.request.whatLabel}:`.padEnd(16) + (draft.service ?? "not said yet"),
+    `${business.request.whenLabel}:`.padEnd(16) + (draft.preferredTime ?? "not said yet"),
     `Type:           ${draft.intent}`,
     draft.notes ? `Notes:          ${draft.notes}` : null,
     "",
     event === "complaint"
-      ? "The customer was told this is being passed to the clinic. Please reply soon."
-      : "The customer was told the clinic will confirm. The agent has NOT confirmed any slot.",
+      ? `The customer was told this is being passed to ${business.team}. Please reply soon.`
+      : `The customer was told ${business.team} will confirm. The agent has NOT confirmed anything.`,
     link ? `\nOpen the conversation: ${link}` : null,
   ]
     .filter((line) => line !== null)
