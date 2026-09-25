@@ -6,6 +6,7 @@ import { business } from "@/lib/business";
 import { listLeads, type Lead } from "@/lib/leads";
 import { businessPhoneId } from "@/lib/tenant";
 import { logout, updateStatus } from "./actions";
+import { AutoRefresh } from "./auto-refresh";
 
 export const metadata = { title: "Leads" };
 
@@ -103,16 +104,28 @@ function LeadCard({ lead }: { lead: Lead }) {
                 closed
               </span>
             )}
+
+            {lead.botPaused && (
+              <span className="rounded bg-violet-500/10 px-1.5 py-0.5 text-[11px] font-medium text-violet-700 dark:text-violet-400">
+                staff handling
+              </span>
+            )}
           </div>
 
-          <a
-            href={`https://wa.me/${lead.customerWaId}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="mt-1 inline-block font-mono text-sm text-black/60 underline-offset-2 hover:underline dark:text-white/60"
-          >
-            +{lead.customerWaId}
-          </a>
+          {/* Replies go from the clinic's number via the chat page. A wa.me
+              link would open the chat from whoever's personal WhatsApp is
+              on this device — the customer would get a stranger's number. */}
+          <div className="mt-1 flex items-center gap-3 text-sm">
+            <span className="font-mono text-black/60 dark:text-white/60">
+              +{lead.customerWaId}
+            </span>
+            <Link
+              href={`/leads/chat/${lead.customerWaId}`}
+              className="font-medium underline-offset-2 hover:underline"
+            >
+              Open chat →
+            </Link>
+          </div>
         </div>
 
         <div className="flex items-center gap-2">
@@ -152,6 +165,8 @@ export default async function LeadsPage({ searchParams }: PageProps<"/leads">) {
 
   return (
     <main className="mx-auto w-full max-w-3xl flex-1 px-4 py-10 sm:px-6">
+      <AutoRefresh seconds={30} />
+
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold tracking-tight">

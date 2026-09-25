@@ -95,7 +95,9 @@ async function run() {
     for (const line of lines) {
       turns.push({ role: "user", content: line });
 
-      reply = await generateReply(turns);
+      // null = the model call failed (usually a 429 on the free tier).
+      // Mark it loudly rather than letting an error pass for a reply.
+      reply = (await generateReply(turns)) ?? "<<NO REPLY — model call failed>>";
       turns.push({ role: "assistant", content: reply });
 
       console.log(`  IN     ${line}`);

@@ -15,7 +15,9 @@ create table if not exists messages (
   -- The customer's number, international format.
   customer_wa_id    text        not null,
 
-  role              text        not null check (role in ('user', 'assistant')),
+  -- user = the customer, assistant = the bot, staff = someone at the
+  -- clinic replying from the dashboard.
+  role              text        not null check (role in ('user', 'assistant', 'staff')),
   content           text        not null,
 
   -- Meta's message id, for inbound only. Null for our own replies.
@@ -68,3 +70,22 @@ create table if not exists leads (
 
 create index if not exists leads_worklist_idx
   on leads (business_phone_id, status, updated_at desc);
+
+-- ---------------------------------------------------------------
+-- Conversations: per-thread settings. Today that is only the handoff
+-- switch — while paused_until is in the future, staff is handling the
+-- chat from the dashboard and the bot stays silent.
+--
+-- A timestamp rather than a boolean, so a pause somebody forgot to lift
+-- expires by itself instead of silencing the bot for that customer
+-- forever. Null, or any time in the past, means the bot is replying.
+-- ---------------------------------------------------------------
+
+create table if not exists conversations (
+  business_phone_id text        not null,
+  customer_wa_id    text        not null,
+  paused_until      timestamptz,
+  updated_at        timestamptz not null default now(),
+
+  primary key (business_phone_id, customer_wa_id)
+);

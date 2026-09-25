@@ -15,26 +15,38 @@ function headers() {
   };
 }
 
-export async function sendText(to: string, body: string) {
-  const res = await fetch(endpoint(), {
-    method: "POST",
-    headers: headers(),
-    body: JSON.stringify({
-      messaging_product: "whatsapp",
-      recipient_type: "individual",
-      to,
-      type: "text",
-      text: { preview_url: false, body },
-    }),
-  });
+// Returns true only if Meta accepted the message. Callers use this to
+// decide whether the reply goes into conversation history — a message the
+// customer never received must not become something the model thinks it
+// said.
+export async function sendText(to: string, body: string): Promise<boolean> {
+  try {
+    const res = await fetch(endpoint(), {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({
+        messaging_product: "whatsapp",
+        recipient_type: "individual",
+        to,
+        type: "text",
+        text: { preview_url: false, body },
+      }),
+    });
 
-  if (!res.ok) {
-    console.error("send failed:", res.status, await res.text());
+    if (!res.ok) {
+      console.error("send failed:", res.status, await res.text());
+      return false;
+    }
+
+    return true;
+  } catch (err) {
+    console.error("send request failed:", err);
+    return false;
   }
 }
 
 // Shows the blue ticks. Cheap trick, but it makes the bot feel present
-// while Claude is still thinking.
+// while the model is still thinking.
 export async function markAsRead(messageId: string) {
   try {
     await fetch(endpoint(), {

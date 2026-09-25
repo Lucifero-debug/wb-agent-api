@@ -89,17 +89,24 @@ HOW TO WRITE
   you are passing it to the clinic. Do not investigate or argue.`;
 }
 
-export async function generateReply(turns: Turn[]): Promise<string> {
+// What the customer sees when the model fails. Sent, but never written to
+// conversation history — the model should not read its own error messages
+// back as things it said.
+export const FALLBACK_REPLY = "Sorry, something went wrong. Please try again.";
+
+// Returns null on any failure, so the caller can tell a real reply apart
+// from an error and keep errors out of the conversation history.
+export async function generateReply(turns: Turn[]): Promise<string | null> {
   const key = process.env.GEMINI_API_KEY;
 
   if (!key) {
     console.error("GEMINI_API_KEY is not set");
-    return "Sorry, something went wrong. Please try again.";
+    return null;
   }
 
   if (turns.length === 0) {
     console.error("generateReply called with no turns");
-    return "Sorry, could you say that again?";
+    return null;
   }
 
   try {
@@ -131,7 +138,7 @@ export async function generateReply(turns: Turn[]): Promise<string> {
       console.error("gemini error:", res.status, detail);
 
       // 429 = you hit the free-tier rate limit. Slow down, don't panic.
-      return "Sorry, something went wrong. Please try again.";
+      return null;
     }
 
     const data = await res.json();
@@ -141,10 +148,16 @@ export async function generateReply(turns: Turn[]): Promise<string> {
       .join("")
       .trim();
 
-    return text || "Sorry, could you say that again?";
+    if (!text) {
+      // Usually a safety block or an empty candidate — log why.
+      console.error("gemini returned no text:", JSON.stringify(data));
+      return null;
+    }
+
+    return text;
   } catch (err) {
     console.error("gemini request failed:", err);
-    return "Sorry, something went wrong. Please try again.";
+    return null;
   }
 }
 

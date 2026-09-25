@@ -15,13 +15,15 @@
 import crypto from "crypto";
 import { waitUntil } from "@vercel/functions";
 import { sendText, markAsRead } from "@/lib/whatsapp";
-import { generateReply, extractLead } from "@/lib/llm";
+import { generateReply, extractLead, FALLBACK_REPLY } from "@/lib/llm";
 import {
   recordInbound,
   recordOutbound,
   loadHistory,
 } from "@/lib/conversation";
-import { upsertLead } from "@/lib/leads";
+import { upsertLead, worthFollowingUp } from "@/lib/leads";
+import { isBotPaused } from "@/lib/handoff";
+import { sendLeadAlert } from "@/lib/alerts";
 
 // ---------------------------------------------------------------
 // Signature check — confirms the request really came from Meta
@@ -132,17 +134,12 @@ async function handleWebhook(body: WebhookBody) {
 
     const from = message.from; // sender's number, international format
 
-    console.log(`[${from}] ${message.type}:`, message.text?.body ?? "(non-text)");
+    const text =
+      message.type === "text" && message.text?.body ? message.text.body : null;
+
+    console.log(`[${from}] ${message.type}:`, text ?? "(non-text)");
 
     await markAsRead(message.id);
-
-    if (message.type !== "text" || !message.text?.body) {
-      await sendText(
-        from,
-        "I can only read text messages right now. Could you type it out?"
-      );
-      return;
-    }
 
     // Which of our numbers this arrived on. Always the same one today; the
     // thread key is built for the day it isn't.
@@ -154,10 +151,14 @@ async function handleWebhook(body: WebhookBody) {
     // Writing the message is also how we detect a duplicate: the unique
     // index on wa_message_id rejects the second copy. Meta retries when a
     // 200 is slow, and without this the customer gets answered twice.
+    //
+    // Voice notes and photos are recorded too, as a placeholder, so staff
+    // looking at the thread can see that one arrived — even though the
+    // bot cannot read it yet.
     const isNew = await recordInbound(
       businessPhoneId,
       from,
-      message.text.body,
+      text ?? `[${message.type} message]`,
       message.id
     );
 
@@ -166,26 +167,71 @@ async function handleWebhook(body: WebhookBody) {
       return;
     }
 
+    // Staff has taken over this chat from the dashboard. The message is
+    // saved above, so it shows up in their thread view; the bot stays
+    // quiet so the customer never gets two voices answering at once.
+    if (await isBotPaused(businessPhoneId, from)) {
+      console.log(`[${from}] bot paused — staff is handling this chat`);
+      return;
+    }
+
+    if (text === null) {
+      await sendText(
+        from,
+        "I can only read text messages right now. Could you type it out?"
+      );
+      return;
+    }
+
     // Includes the message just written, as the final turn.
     const history = await loadHistory(businessPhoneId, from);
 
     const reply = await generateReply(history);
 
-    await sendText(from, reply);
-    await recordOutbound(businessPhoneId, from, reply);
+    if (reply === null) {
+      // The model failed. The customer still hears something, but the
+      // fallback stays out of history — otherwise the next reply is built
+      // on top of our own error message. Skip extraction too: there is no
+      // new exchange to extract from.
+      console.error(`[${from}] no reply generated — sending fallback`);
+      await sendText(from, FALLBACK_REPLY);
+      return;
+    }
+
+    console.log(`[${from}] reply:`, reply);
+
+    const delivered = await sendText(from, reply);
+
+    // Only remember what the customer actually received. A reply Meta
+    // rejected never reached them, so the model must not think it said it.
+    if (delivered) {
+      await recordOutbound(businessPhoneId, from, reply);
+    } else {
+      console.error(`[${from}] reply not delivered — not saved to history`);
+    }
 
     // The customer has their answer by now, so this costs them nothing.
+    // Runs even when delivery failed: what the customer TOLD us is still
+    // true, and the clinic still wants the lead. The undelivered reply is
+    // left out of the transcript so extraction only sees what happened.
     // Its own try/catch: a failed extraction loses one lead, and must not
     // take the rest of the handler down with it.
     try {
-      const draft = await extractLead([
-        ...history,
-        { role: "assistant", content: reply },
-      ]);
+      const draft = await extractLead(
+        delivered ? [...history, { role: "assistant", content: reply }] : history
+      );
 
-      if (draft) {
-        await upsertLead(businessPhoneId, from, draft);
-        console.log(`[${from}] lead:`, draft);
+      if (draft && worthFollowingUp(draft)) {
+        const event = await upsertLead(businessPhoneId, from, draft);
+        console.log(`[${from}] lead${event ? ` (${event})` : ""}:`, draft);
+
+        // Only new leads, returning customers and fresh complaints wake a
+        // human up. Never throws — sendLeadAlert catches its own errors.
+        if (event) {
+          await sendLeadAlert(event, from, draft);
+        }
+      } else if (draft) {
+        console.log(`[${from}] not a lead yet (${draft.intent}, no name or time)`);
       }
     } catch (err) {
       console.error("lead capture failed:", err);

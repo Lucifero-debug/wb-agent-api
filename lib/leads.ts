@@ -29,9 +29,32 @@ export type Lead = LeadDraft & {
   id: string;
   customerWaId: string;
   status: LeadStatus;
+  botPaused: boolean; // staff has taken over this chat
   createdAt: string;
   updatedAt: string;
 };
+
+// The moments worth interrupting a human for. Everything else — a lead
+// gaining a detail, a second message in an open booking — just updates
+// the dashboard quietly.
+export type LeadEvent = "new" | "reopened" | "complaint";
+
+// ---------------------------------------------------------------
+// Does this belong on the clinic's worklist?
+//
+// The model's is_lead judgement is too generous — it flags a plain price
+// question the agent already answered. So the model proposes and this
+// rule decides: a lead needs a booking or complaint intent, or at least
+// one concrete detail the clinic could act on (a name or a time).
+//
+// A conversation that starts as a price question and later turns into a
+// booking still gets through, on the message where it turns.
+// ---------------------------------------------------------------
+export function worthFollowingUp(draft: LeadDraft): boolean {
+  if (draft.intent === "booking" || draft.intent === "complaint") return true;
+
+  return draft.name !== null || draft.preferredTime !== null;
+}
 
 function db() {
   const url = process.env.DATABASE_URL;
@@ -44,19 +67,31 @@ function db() {
 }
 
 // ---------------------------------------------------------------
-// Write the current state of a lead.
+// Write the current state of a lead, and report whether anything
+// alert-worthy just happened.
 //
 // Called after every customer message, so it has to be additive: a later
 // extraction that fails to spot the name must not erase the name we
 // already had. That is what the coalesce() on each field is for —
 // details accumulate, they never regress to null.
+//
+// The event is worked out from the row as it was BEFORE the write. Two
+// statements rather than one clever CTE; at one clinic's volume the gap
+// between them does not matter, and this stays readable.
 // ---------------------------------------------------------------
 export async function upsertLead(
   businessPhoneId: string,
   customerWaId: string,
   draft: LeadDraft
-): Promise<void> {
+): Promise<LeadEvent | null> {
   const sql = db();
+
+  const before = await sql`
+    select intent, status
+    from leads
+    where business_phone_id = ${businessPhoneId}
+      and customer_wa_id = ${customerWaId}
+  `;
 
   await sql`
     insert into leads
@@ -76,13 +111,22 @@ export async function upsertLead(
       status         = case when leads.status = 'closed' then 'new' else leads.status end,
       updated_at     = now()
   `;
+
+  const prev = before[0];
+
+  if (!prev) return "new";
+  if (prev.status === "closed") return "reopened";
+  if (draft.intent === "complaint" && prev.intent !== "complaint") return "complaint";
+
+  return null;
 }
 
 // ---------------------------------------------------------------
 // The worklist, newest activity first.
 //
 // Closed leads are hidden by default — the point of the list is what
-// still needs doing — but the dashboard can ask for them.
+// still needs doing — but the dashboard can ask for them. Joined to
+// conversations so each card can show whether staff has taken over.
 // ---------------------------------------------------------------
 export async function listLeads(
   businessPhoneId: string,
@@ -90,24 +134,19 @@ export async function listLeads(
 ): Promise<Lead[]> {
   const sql = db();
 
-  const rows = includeClosed
-    ? await sql`
-        select id, customer_wa_id, name, service, preferred_time, intent,
-               notes, status, created_at, updated_at
-        from leads
-        where business_phone_id = ${businessPhoneId}
-        order by updated_at desc
-        limit ${limit}
-      `
-    : await sql`
-        select id, customer_wa_id, name, service, preferred_time, intent,
-               notes, status, created_at, updated_at
-        from leads
-        where business_phone_id = ${businessPhoneId}
-          and status <> 'closed'
-        order by updated_at desc
-        limit ${limit}
-      `;
+  const rows = await sql`
+    select l.id, l.customer_wa_id, l.name, l.service, l.preferred_time,
+           l.intent, l.notes, l.status, l.created_at, l.updated_at,
+           coalesce(c.paused_until > now(), false) as bot_paused
+    from leads l
+    left join conversations c
+      on c.business_phone_id = l.business_phone_id
+     and c.customer_wa_id    = l.customer_wa_id
+    where l.business_phone_id = ${businessPhoneId}
+      and (${includeClosed}::boolean or l.status <> 'closed')
+    order by l.updated_at desc
+    limit ${limit}
+  `;
 
   return rows.map((r) => toLead(r as LeadRow));
 }
@@ -145,6 +184,7 @@ type LeadRow = {
   intent: Intent;
   notes: string | null;
   status: LeadStatus;
+  bot_paused: boolean;
   created_at: string;
   updated_at: string;
 };
@@ -159,6 +199,7 @@ function toLead(r: LeadRow): Lead {
     intent: r.intent,
     notes: r.notes,
     status: r.status,
+    botPaused: r.bot_paused === true,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
   };
